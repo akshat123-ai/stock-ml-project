@@ -7,6 +7,7 @@ import os
 import plotly.express as px
 import yfinance as yf
 import shap
+import requests
 
 # =========================================================
 # PATHS
@@ -340,22 +341,44 @@ elif page == "Live Stock Prediction":
 
     if st.button("Fetch Data"):
 
-        data = yf.download(ticker,period="6mo")
+        try:
 
-        data = create_features(data)
+            data = yf.download(ticker,period="6mo")
 
-        X = data[FEATURES]
+            if data.empty:
+                st.error("Invalid ticker or no data available.")
+                st.stop()
 
-        X = selector.transform(X)
+            data = create_features(data)
 
-        X_scaled = scaler.transform(X)
+            if len(data) == 0:
+                st.error("Not enough data after feature engineering.")
+                st.stop()
 
-        pred = model.predict(X_scaled)
+            X = data[FEATURES]
 
-        st.line_chart(data["Close"])
+            if X.shape[0] == 0:
+                st.error("Feature matrix empty. Try another ticker.")
+                st.stop()
 
-        st.write("Latest Prediction:",
-                 "UP 📈" if pred[-1]==1 else "DOWN 📉")
+            # Feature selection
+            X = selector.transform(X)
+
+            # Scaling
+            X_scaled = scaler.transform(X)
+
+            pred = model.predict(X_scaled)
+
+            st.line_chart(data["Close"])
+
+            signal = "UP 📈" if pred[-1] == 1 else "DOWN 📉"
+
+            st.success(f"Latest Prediction: {signal}")
+
+        except Exception as e:
+
+            st.error("Prediction failed")
+            st.code(str(e))
 
 # =========================================================
 # MANUAL PREDICTION
@@ -368,23 +391,26 @@ elif page == "Prediction Demo":
     inputs = []
 
     for feature in selected_features:
-
         val = st.number_input(feature,value=0.0)
-
         inputs.append(val)
-
-    X = np.array(inputs).reshape(1,-1)
-
-    X_scaled = scaler.transform(X)
 
     if st.button("Predict"):
 
-        pred = model.predict(X_scaled)[0]
+        payload = {"features": inputs}
 
-        if pred==1:
+        try:
 
-            st.success("📈 Stock likely to go UP")
+            response = requests.post(
+                "http://127.0.0.1:8000/predict",
+                json=payload
+            )
 
-        else:
+            result = response.json()
 
-            st.error("📉 Stock likely to go DOWN")
+            if result["prediction"] == 1:
+                st.success("📈 Stock likely to go UP")
+            else:
+                st.error("📉 Stock likely to go DOWN")
+
+        except:
+            st.error("⚠️ API server not running")
